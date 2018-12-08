@@ -1,11 +1,15 @@
 #pragma once
+
+#ifndef HALF_EDGE_MESH_H
+// mostly for the ide
 #include "HalfEdgeMesh.h"
+#endif
 
 namespace HalfEdgeMesh
 {
 # define HALF_EDGE_MESH_T template< typename FaceData, typename EdgeData, typename HalfEdgeData, typename VertexData >
 # define HALF_EDGE_MESH_C HalfEdgeMesh<FaceData, EdgeData, HalfEdgeData, VertexData>
-    
+
     HALF_EDGE_MESH_T
     typename HALF_EDGE_MESH_C::VertexHandle 
     HALF_EDGE_MESH_C::createVertex()
@@ -388,6 +392,17 @@ namespace HalfEdgeMesh
     }
     
     HALF_EDGE_MESH_T
+    typename HALF_EDGE_MESH_C::CVertexHandle
+    HALF_EDGE_MESH_C::getHalfEdgeVertexOrigin( CHalfEdgeHandle edge_ ) const
+    {
+        const HalfEdgeEntry *edge = asEntry(edge_);
+        if (edge) {
+            return edge->pair->vertex;
+        }
+        return nullptr;
+    }
+    
+    HALF_EDGE_MESH_T
     typename HALF_EDGE_MESH_C::CEdgeHandle 
     HALF_EDGE_MESH_C::getHalfEdgeEdge( CHalfEdgeHandle edge_ ) const
     {
@@ -457,7 +472,7 @@ namespace HalfEdgeMesh
             }
             edge = edge->next;
         } while (edge != face->hedge);
-        return true;
+        return false;
     }
     
 #ifndef HALF_EDGE_MESH_NO_ITERATORS

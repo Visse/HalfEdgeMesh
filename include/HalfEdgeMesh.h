@@ -83,6 +83,16 @@ namespace HalfEdgeMesh
         using CHalfEdgeHandle = const HalfEdgeHandle_t*;
 
     public:
+        HalfEdgeMesh() = default;
+        ~HalfEdgeMesh() = default;
+        
+        HalfEdgeMesh( HalfEdgeMesh&& move ) = default;
+        
+        // for now no copy
+        HalfEdgeMesh( const HalfEdgeMesh& ) = delete;
+        HalfEdgeMesh& operator = ( const HalfEdgeMesh& ) = delete;
+        
+    public:
         VertexHandle createVertex();
         EdgeHandle createEdge( CVertexHandle v1, CVertexHandle v2 );
         
@@ -117,6 +127,9 @@ namespace HalfEdgeMesh
         
         VertexHandle  getHalfEdgeVertex( CHalfEdgeHandle edge ) {return const_cast<VertexHandle>(asConst()->getHalfEdgeVertex(edge));}
         CVertexHandle getHalfEdgeVertex( CHalfEdgeHandle edge ) const;
+        
+        VertexHandle  getHalfEdgeVertexOrigin( CHalfEdgeHandle edge ) {return const_cast<VertexHandle>(asConst()->getHalfEdgeVertexOrigin(edge));}
+        CVertexHandle getHalfEdgeVertexOrigin( CHalfEdgeHandle edge ) const;
         
         EdgeHandle  getHalfEdgeEdge( CHalfEdgeHandle edge ) {return const_cast<EdgeHandle>(asConst()->getHalfEdgeEdge(edge));}
         CEdgeHandle getHalfEdgeEdge( CHalfEdgeHandle edge ) const;
@@ -288,6 +301,9 @@ namespace HalfEdgeMesh
             VertexEntry *vertex = nullptr;
             EdgeEntry *edge = nullptr;
             FaceEntry *face = nullptr;
+            
+            // Used in non-constant iterators when they need to return a this half edge (taken as a const pointer)
+            HalfEdgeEntry* asNonConst() const {return const_cast<HalfEdgeEntry*>(this);}
         };
         
     private:
@@ -366,10 +382,10 @@ namespace HalfEdgeMesh
                 }
                 T* allocate() {
                     size_t idx = BlockSize;
-                #if __GNUC__ || __clang__
+                #if __GNUC__ && !__clang__
                     idx = freeSlabs._Find_first();
                 #else  /// @todo figure out if visual studio provides any better way to find the first bit set
-                    if (freeSlabs.none()) return;
+                    if (freeSlabs.none()) return nullptr;
                     
                     for (size_t i=0; i < BlockSize; ++i) {
                         if (freeSlabs.test(i)) {
@@ -393,7 +409,7 @@ namespace HalfEdgeMesh
                     return (ptr >= (const T*)std::begin(data) && ptr < (const T*)std::end(data));
                 }
                 
-                bool free( T *ptr ) {
+                void free( T *ptr ) {
                     HALF_EDGE_MESH_ASSERT (contains(ptr));
                     
                     size_t idx = ptr - (const T*)std::begin(data);
@@ -422,6 +438,15 @@ namespace HalfEdgeMesh
                     block = next;
                 }
             }
+            
+            SlabAllocator( SlabAllocator &&move ) {
+                std::swap(mFirstBlock, move.mFirstBlock);
+                std::swap(mLastBlock, move.mLastBlock);
+            }
+            
+            SlabAllocator( const SlabAllocator& ) = delete;
+            SlabAllocator& operator = ( const SlabAllocator& ) = delete;
+            
             
             T* allocate() {
                 SlabBlock *block = mFirstBlock;
@@ -740,7 +765,7 @@ namespace HalfEdgeMesh
         }
     };
         
-#define HALF_EDGE_MESH_CORE_ITER(Name, Handle, Member, iterator)                                                    \
+#define HALF_EDGE_MESH_CORE_ITER(Name, Handle, Member, iterator)                                          \
     template< typename FaceData, typename EdgeData, typename HalfEdgeData, typename VertexData >          \
     class HalfEdgeMesh<FaceData, EdgeData, HalfEdgeData, VertexData>::Name :                              \
         public internal::IteratorAdopter<Name, Handle>                                                    \
@@ -783,103 +808,7 @@ namespace HalfEdgeMesh
     HALF_EDGE_MESH_CORE_ITER(CFaceIterator, CFaceHandle, mFaces, const_iterator);
     
 #undef HALF_EDGE_MESH_CORE_ITER
- /*<       
-#define HALF_EDGE_MESH_HEDGE_ITER(Name, Type, Handle, inc, dec, get)                                      \
-    template< typename FaceData, typename EdgeData, typename HalfEdgeData, typename VertexData >          \
-    class HalfEdgeMesh<FaceData, EdgeData, HalfEdgeData, VertexData>::Name :                              \
-        public internal::IteratorAdopter<Name, Handle&>                                                   \
-    {                                                                                                     \
-        const HalfEdgeEntry *mRoot = nullptr,                                                             \
-                            *mHead = nullptr;                                                             \
-        int mLap = 0;                                                                                     \
-    public:                                                                                               \
-        Name() = default;                                                                                 \
-        Name( Type *root, int lap=0 ) :                                                                   \
-            mRoot(root->hedge),                                                                           \
-            mHead(root->hedge),                                                                           \
-            mLap(lap)                                                                                     \
-        {                                                                                                 \
-            if (mHead == nullptr) {                                                                       \
-                mLap = 1;                                                                                 \
-                return;                                                                                   \
-            }                                                                                             \
-            HALF_EDGE_MESH_ASSERT(mHead);                                                                 \
-            while (!(mHead get)) {                                                                        \
-                mHead = mHead inc;                                                                        \
-                if (mHead == mRoot) {                                                                     \
-                    mLap = 1;                                                                             \
-                    return;                                                                               \
-                }                                                                                         \
-            }                                                                                             \
-        }                                                                                                 \
-        Name( const Name &copy ) = default;                                                               \
-        Name& operator = ( const Name& ) = default;                                                       \
-        bool equal( const Name &other ) const {                                                           \
-            if (mLap != other.mLap) return false;                                                         \
-            if (mHead && other.mHead) {                                                                   \
-                return mHead == other.mHead;                                                              \
-            }                                                                                             \
-            return true;                                                                                  \
-        }                                                                                                 \
-        Handle operator * () const {                                                                      \
-            HALF_EDGE_MESH_ASSERT(mHead);                                                                 \
-            return mHead get;                                                                             \
-        }                                                                                                 \
-        Handle operator -> () const {                                                                     \
-            HALF_EDGE_MESH_ASSERT(mHead);                                                                 \
-            return mHead get;                                                                             \
-        }                                                                                                 \
-        void increment() {                                                                                \
-            HALF_EDGE_MESH_ASSERT(mHead);                                                                 \
-            do {                                                                                          \
-                mHead = mHead inc;                                                                        \
-                if (mHead == mRoot) {                                                                     \
-                    mLap++;                                                                               \
-                    return;                                                                               \
-                }                                                                                         \
-            } while (!(mHead get));                                                                       \
-        }                                                                                                 \
-        void decrement() {                                                                                \
-            HALF_EDGE_MESH_ASSERT(mHead);                                                                 \
-            do {                                                                                          \
-                if (mHead == mRoot) {                                                                     \
-                    mLap--;                                                                               \
-                    mHead = mHead dec;                                                                    \
-                    return;                                                                               \
-                }                                                                                         \
-                mHead = mHead dec;                                                                        \
-            } while (!(mHead get));                                                                       \
-        }                                                                                                 \
-    };
-    
-    template< typename FaceData, typename EdgeData, typename HalfEdgeData, typename VertexData >
-    class HalfEdgeMesh<FaceData, EdgeData, HalfEdgeData, VertexData>::Name {
-        
-    }
-    
-    HALF_EDGE_MESH_HEDGE_ITER(VertexVertexIterator, VertexEntry, VertexHandle, ->pair->next, ->prev->pair, ->vertex);
-    HALF_EDGE_MESH_HEDGE_ITER(VertexOutHalfEdgeIterator, VertexEntry, HalfEdgeHandle, ->pair->next, ->prev->pair, );
-    HALF_EDGE_MESH_HEDGE_ITER(VertexInHalfEdgeIterator, VertexEntry, HalfEdgeHandle, ->pair->next, ->prev->pair, ->pair );
-    HALF_EDGE_MESH_HEDGE_ITER(VertexEdgeIterator, VertexEntry, EdgeHandle, ->pair->next, ->prev->pair, ->edge );
-    HALF_EDGE_MESH_HEDGE_ITER(VertexFaceIterator, VertexEntry, FaceHandle, ->pair->next, ->prev->pair, ->face );
-    
-    HALF_EDGE_MESH_HEDGE_ITER(FaceVertexIterator, FaceEntry, VertexHandle, ->next, ->prev, ->vertex );
-    HALF_EDGE_MESH_HEDGE_ITER(FaceHalfEdgeIterator, FaceEntry, HalfEdgeHandle, ->next, ->prev, );
-    HALF_EDGE_MESH_HEDGE_ITER(FaceEdgeIterator, FaceEntry, EdgeHandle, ->next, ->prev, ->edge );
-    HALF_EDGE_MESH_HEDGE_ITER(FaceFaceIterator, FaceEntry, FaceHandle, ->next, ->prev, ->pair->face );
 
-        
-    HALF_EDGE_MESH_HEDGE_ITER(CVertexVertexIterator, VertexEntry, CVertexHandle, ->pair->next, ->prev->pair, ->vertex);
-    HALF_EDGE_MESH_HEDGE_ITER(CVertexOutHalfEdgeIterator, VertexEntry, CHalfEdgeHandle, ->pair->next, ->prev->pair, );
-    HALF_EDGE_MESH_HEDGE_ITER(CVertexInHalfEdgeIterator, VertexEntry, CHalfEdgeHandle, ->pair->next, ->prev->pair, ->pair );
-    HALF_EDGE_MESH_HEDGE_ITER(CVertexEdgeIterator, VertexEntry, CEdgeHandle, ->pair->next, ->prev->pair, ->edge );
-    HALF_EDGE_MESH_HEDGE_ITER(CVertexFaceIterator, VertexEntry, CFaceHandle, ->pair->next, ->prev->pair, ->face );
-    
-    HALF_EDGE_MESH_HEDGE_ITER(CFaceVertexIterator, FaceEntry, CVertexHandle, ->next, ->prev, ->vertex );
-    HALF_EDGE_MESH_HEDGE_ITER(CFaceHalfEdgeIterator, FaceEntry, CHalfEdgeHandle, ->next, ->prev, );
-    HALF_EDGE_MESH_HEDGE_ITER(CFaceEdgeIterator, FaceEntry, CEdgeHandle, ->next, ->prev, ->edge );
-    HALF_EDGE_MESH_HEDGE_ITER(CFaceFaceIterator, FaceEntry, CFaceHandle, ->next, ->prev, ->pair->face );
-*/
 #define HALF_EDGE_MESH_HEDGE_ITER(Name, Type, Handle, const_, inc, dec, attr)                                       \
     template< typename FaceData, typename EdgeData, typename HalfEdgeData, typename VertexData >                    \
     class HalfEdgeMesh<FaceData, EdgeData, HalfEdgeData, VertexData>::Name :                                        \
@@ -902,13 +831,13 @@ namespace HalfEdgeMesh
     
     
     HALF_EDGE_MESH_HEDGE_ITER(VertexVertexIterator, VertexEntry, VertexHandle_t, false, ->pair->next, ->prev->pair, ->vertex);
-    HALF_EDGE_MESH_HEDGE_ITER(VertexOutHalfEdgeIterator, VertexEntry, HalfEdgeHandle_t, false, ->pair->next, ->prev->pair, );
+    HALF_EDGE_MESH_HEDGE_ITER(VertexOutHalfEdgeIterator, VertexEntry, HalfEdgeHandle_t, false, ->pair->next, ->prev->pair, ->asNonConst() );
     HALF_EDGE_MESH_HEDGE_ITER(VertexInHalfEdgeIterator, VertexEntry, HalfEdgeHandle_t, false, ->pair->next, ->prev->pair, ->pair );
     HALF_EDGE_MESH_HEDGE_ITER(VertexEdgeIterator, VertexEntry, EdgeHandle_t, false, ->pair->next, ->prev->pair, ->edge );
     HALF_EDGE_MESH_HEDGE_ITER(VertexFaceIterator, VertexEntry, FaceHandle_t, false, ->pair->next, ->prev->pair, ->face );
     
     HALF_EDGE_MESH_HEDGE_ITER(FaceVertexIterator, FaceEntry, VertexHandle_t, false, ->next, ->prev, ->vertex );
-    HALF_EDGE_MESH_HEDGE_ITER(FaceHalfEdgeIterator, FaceEntry, HalfEdgeHandle_t, false, ->next, ->prev, );
+    HALF_EDGE_MESH_HEDGE_ITER(FaceHalfEdgeIterator, FaceEntry, HalfEdgeHandle_t, false, ->next, ->prev, ->asNonConst() );
     HALF_EDGE_MESH_HEDGE_ITER(FaceEdgeIterator, FaceEntry, EdgeHandle_t, false, ->next, ->prev, ->edge );
     HALF_EDGE_MESH_HEDGE_ITER(FaceFaceIterator, FaceEntry, FaceHandle_t, false, ->next, ->prev, ->pair->face );
 
